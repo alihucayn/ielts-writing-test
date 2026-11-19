@@ -1,0 +1,12 @@
+{
+  "name": "ielts-writing-test",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "IELTS Writing test platform: tests generated and marked by Claude via the claude CLI",
+  "scripts": {
+    "start": "node server.mjs",
+    "mock": "WRITING_MOCK=1 node server.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
