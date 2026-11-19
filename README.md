@@ -61,7 +61,7 @@ If Claude replies with a greeting, you're connected. If it doesn't, see [Trouble
 ## 2. Run the platform
 
 ```sh
-git clone https://github.com/<your-username>/ielts-writing-test.git
+git clone https://github.com/alihucayn/ielts-writing-test.git
 cd ielts-writing-test
 npm start
 ```
