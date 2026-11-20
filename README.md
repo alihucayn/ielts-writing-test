@@ -26,7 +26,15 @@ macOS / Linux:
 curl -fsSL https://claude.ai/install.sh | bash
 ```
 
-Or with npm:
+Windows (PowerShell):
+
+```powershell
+irm https://claude.ai/install.ps1 | iex
+```
+
+After installing on Windows, **close and reopen your terminal** so that `claude` is on your PATH.
+
+Or, on any system, with npm:
 
 ```sh
 npm install -g @anthropic-ai/claude-code
@@ -50,8 +58,16 @@ On first launch it asks you to log in. Otherwise, type `/login` inside it. Choos
 
 ### Step 4: Check that it works
 
+macOS / Linux:
+
 ```sh
 echo "say hi" | claude -p
+```
+
+Windows (PowerShell):
+
+```powershell
+claude -p "say hi"
 ```
 
 If Claude replies with a greeting, you're connected. If it doesn't, see [Troubleshooting](#troubleshooting).
@@ -66,14 +82,18 @@ cd ielts-writing-test
 npm start
 ```
 
-Open **http://127.0.0.1:4000**. Keep the terminal open while you use the app; Ctrl+C stops it.
+Open **http://127.0.0.1:4000**. Keep the terminal open while you use the app; Ctrl+C stops it. When the server starts, it prints which Claude CLI it found, or a warning explaining how to fix it if it found none.
 
-| Option | How |
-| --- | --- |
-| Different port | `PORT=5000 npm start` |
-| Choose a model | `CLAUDE_MODEL=opus npm start` (left blank, the CLI's default model is used) |
-| CLI not on PATH | `CLAUDE_BIN=/full/path/to/claude npm start` |
-| Try the UI without Claude | `npm run mock` (canned test and marks) |
+The app finds the CLI on its own on macOS, Linux and Windows. That includes the native `claude.exe` and the npm `claude.cmd` installs on Windows. If it still can't find it, point it at the CLI with `CLAUDE_BIN`, as shown in the table below.
+
+| Option | macOS / Linux | Windows (PowerShell) |
+| --- | --- | --- |
+| Different port | `PORT=5000 npm start` | `$env:PORT=5000; npm start` |
+| Choose a model | `CLAUDE_MODEL=opus npm start` | `$env:CLAUDE_MODEL="opus"; npm start` |
+| Set the CLI path | `CLAUDE_BIN="$(which claude)" npm start` | `$env:CLAUDE_BIN=(Get-Command claude).Source; npm start` |
+| Try the UI without Claude | `npm run mock` | `npm run mock` |
+
+Leave the model blank to use the CLI's default model. In Windows Command Prompt (cmd.exe), use `set CLAUDE_BIN=C:\path\to\claude.exe` and then `npm start`.
 
 ---
 
@@ -109,7 +129,8 @@ Bands are Claude's practice estimates, not official IELTS scores.
 | --- | --- |
 | `Credit balance is too low` | The CLI is logged in with an API (Console) account that has no credit, or `ANTHROPIC_API_KEY` is set in your shell. Run `unset ANTHROPIC_API_KEY`, then run `claude`, type `/login` and choose your subscription account. |
 | `Not logged in · Please run /login` | Run `claude`, then `/login`. |
-| `Could not find the 'claude' CLI on PATH` | Install the CLI (Step 2), or run with `CLAUDE_BIN=$(which claude) npm start`. |
+| `Could not find the Claude Code CLI` | Install the CLI (Step 2) and **open a new terminal**. If it's installed, find it with `which claude` (macOS/Linux) or `where.exe claude` (Windows) and set `CLAUDE_BIN` to that path (see the table in section 2). |
+| `Port 4000 is already in use` | The app is already running. Open http://127.0.0.1:4000, or start a second copy on another port. |
 | `Claude took longer than 8 minutes` | Usually a network problem or a usage limit. Press **Retry**; your answers are kept. |
 | Generation or marking failed after a restart | Jobs that were running when the server stopped are marked failed. Press **Retry**. |
 

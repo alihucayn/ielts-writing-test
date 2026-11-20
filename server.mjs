@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildGeneratePrompt, buildGradePrompt, TEST_SCHEMA, GRADE_SCHEMA } from "./prompts.mjs";
 import { mockTest, mockGrade } from "./mock.mjs";
+import { resolveClaude } from "./claude-bin.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, "public");
@@ -19,8 +20,8 @@ fs.mkdirSync(WORKDIR, { recursive: true });
 
 const PORT = Number(process.env.PORT || 4000);
 const HOST = "127.0.0.1";
-const MOCK = process.env.WRITING_MOCK === "1";
-const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
+const MOCK = process.env.WRITING_MOCK === "1" || process.argv.includes("--mock");
+const CLAUDE = MOCK ? null : resolveClaude();
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || ""; // empty = CLI default
 const TIMEOUT_MS = 8 * 60 * 1000;
 const TEST_MINUTES = 60;
@@ -94,7 +95,8 @@ function runClaude(prompt, schema) {
       "--json-schema", JSON.stringify(schema),
     ];
     if (CLAUDE_MODEL) args.push("--model", CLAUDE_MODEL);
-    const child = spawn(CLAUDE_BIN, args, { cwd: WORKDIR, env: cleanEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    if (CLAUDE.error) return reject(new Error(CLAUDE.error));
+    const child = spawn(CLAUDE.cmd, [...CLAUDE.pre, ...args], { cwd: WORKDIR, env: cleanEnv(), stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     let out = "", err = "";
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
@@ -104,7 +106,7 @@ function runClaude(prompt, schema) {
     child.stderr.on("data", (d) => (err += d));
     child.on("error", (e) => {
       clearTimeout(timer);
-      reject(new Error(e.code === "ENOENT" ? `Could not find the '${CLAUDE_BIN}' CLI on PATH. Set CLAUDE_BIN.` : e.message));
+      reject(new Error(`Could not start the Claude CLI at ${CLAUDE.label}: ${e.message}`));
     });
     child.on("close", (code) => {
       clearTimeout(timer);
@@ -331,4 +333,6 @@ server.on("error", (e) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`IELTS Writing platform: http://${HOST}:${PORT}${MOCK ? "  (MOCK mode — Claude not called)" : ""}`);
+  if (CLAUDE?.error) console.error(`\nWARNING: ${CLAUDE.error}\n`);
+  else if (CLAUDE) console.log(`Using Claude CLI: ${CLAUDE.label}`);
 });

@@ -6,7 +6,7 @@
   "description": "IELTS Writing test platform: tests generated and marked by Claude via the claude CLI",
   "scripts": {
     "start": "node server.mjs",
-    "mock": "WRITING_MOCK=1 node server.mjs"
+    "mock": "node server.mjs --mock"
   },
   "engines": { "node": ">=20" }
 }
