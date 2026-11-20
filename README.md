@@ -130,6 +130,7 @@ Bands are Claude's practice estimates, not official IELTS scores.
 | `Credit balance is too low` | The CLI is logged in with an API (Console) account that has no credit, or `ANTHROPIC_API_KEY` is set in your shell. Run `unset ANTHROPIC_API_KEY`, then run `claude`, type `/login` and choose your subscription account. |
 | `Not logged in · Please run /login` | Run `claude`, then `/login`. |
 | `Could not find the Claude Code CLI` | Install the CLI (Step 2) and **open a new terminal**. If it's installed, find it with `which claude` (macOS/Linux) or `where.exe claude` (Windows) and set `CLAUDE_BIN` to that path (see the table in section 2). |
+| Windows: `spawn ...\\npm\\claude ENOENT`, or `only the npm placeholder` | The npm install of Claude Code didn't finish its setup step. Easiest fix: install the native version with `irm https://claude.ai/install.ps1 \| iex`, open a new terminal, and run `npm start` again. Or reinstall with npm: `npm install -g @anthropic-ai/claude-code`. |
 | `Port 4000 is already in use` | The app is already running. Open http://127.0.0.1:4000, or start a second copy on another port. |
 | `Claude took longer than 8 minutes` | Usually a network problem or a usage limit. Press **Retry**; your answers are kept. |
 | Generation or marking failed after a restart | Jobs that were running when the server stopped are marked failed. Press **Retry**. |

@@ -1,73 +1,117 @@
 // Locates the Claude Code CLI so it can be spawned without a shell, on macOS, Linux and Windows.
-// On Windows, `claude` is either a native claude.exe or an npm-generated claude.cmd shim;
-// Node can't spawn a .cmd without a shell, so we resolve the shim to the real exe or .js file.
+//
+// Windows is the tricky case. Depending on how Claude Code was installed, PATH holds:
+//   - claude.exe                       native installer (%USERPROFILE%\.local\bin) — spawnable
+//   - claude / claude.cmd / claude.ps1 npm shims in %APPDATA%\npm — NOT spawnable by Node
+// The npm package @anthropic-ai/claude-code ships bin/claude.exe as a ~500-byte placeholder that its
+// postinstall replaces with the real binary from @anthropic-ai/claude-code-win32-<arch>. If postinstall
+// didn't run, the placeholder stays, so we look for the platform package's claude.exe directly.
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-const isWin = process.platform === "win32";
-const exists = (p) => {
+const isFile = (p) => {
   try {
     return fs.statSync(p).isFile();
   } catch {
     return false;
   }
 };
-
-// npm shim dir → the real entry point inside node_modules/@anthropic-ai/claude-code.
-function fromNpmShim(shimPath) {
-  const pkgDir = path.join(path.dirname(shimPath), "node_modules", "@anthropic-ai", "claude-code");
+const size = (p) => {
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
-    const rel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.claude;
-    if (rel) {
-      const target = path.join(pkgDir, rel);
-      if (exists(target)) return asCommand(target);
-      // Some versions point bin at a script that launches a platform exe.
-      if (exists(target + ".exe")) return asCommand(target + ".exe");
-    }
-  } catch {}
-  for (const c of ["bin/claude.exe", "cli.js"]) if (exists(path.join(pkgDir, c))) return asCommand(path.join(pkgDir, c));
-  return null;
-}
-
-function asCommand(file) {
-  const ext = path.extname(file).toLowerCase();
-  if (ext === ".js" || ext === ".mjs" || ext === ".cjs") return { cmd: process.execPath, pre: [file], label: file };
-  if (isWin && (ext === ".cmd" || ext === ".bat")) return fromNpmShim(file);
-  return { cmd: file, pre: [], label: file };
-}
-
-export function resolveClaude() {
-  const configured = process.env.CLAUDE_BIN?.trim().replace(/^"(.*)"$/, "$1");
-  if (configured) {
-    if (exists(configured)) return asCommand(configured) || { cmd: configured, pre: [], label: configured };
-    if (!configured.includes("/") && !configured.includes("\\")) return search(configured);
-    return { error: `CLAUDE_BIN is set to "${configured}", but no file exists there.` };
+    return fs.statSync(p).size;
+  } catch {
+    return 0;
   }
-  return search("claude");
-}
+};
+// The real binary is tens of MB; the npm placeholder is a few hundred bytes.
+const isRealBinary = (p) => isFile(p) && size(p) > 100_000;
 
-function search(name) {
-  const dirs = (process.env.PATH || process.env.Path || "").split(path.delimiter).filter(Boolean);
-  const home = os.homedir();
-  // Default install locations, in case PATH in this terminal hasn't been refreshed.
-  dirs.push(path.join(home, ".local", "bin"), path.join(home, ".claude", "local"));
-  if (isWin && process.env.APPDATA) dirs.push(path.join(process.env.APPDATA, "npm"));
-  if (!isWin) dirs.push("/opt/homebrew/bin", "/usr/local/bin");
+export function resolveClaude({ platform = process.platform, env = process.env, home = os.homedir(), arch = process.arch } = {}) {
+  const win = platform === "win32";
+  const notes = [];
 
-  const exts = isWin ? [".exe", ".cmd", ".bat", ""] : [""];
-  for (const dir of dirs) {
-    for (const ext of exts) {
-      const p = path.join(dir, name + ext);
-      if (!exists(p)) continue;
-      const c = asCommand(p);
+  const asCommand = (file) => {
+    const ext = path.extname(file).toLowerCase();
+    if ([".js", ".mjs", ".cjs"].includes(ext)) return { cmd: process.execPath, pre: [file], label: file };
+    if (win) {
+      if (ext === ".exe" || ext === ".com") {
+        if (isRealBinary(file)) return { cmd: file, pre: [], label: file };
+        notes.push(`${file} is only the npm placeholder (its install step did not finish).`);
+        return fromPackageDir(path.dirname(path.dirname(file)));
+      }
+      // Any other file on Windows is an npm/shell shim: follow it to the real program.
+      return fromShim(file);
+    }
+    return { cmd: file, pre: [], label: file };
+  };
+
+  // Read a shim (.cmd, .ps1 or the extensionless sh script) and follow the path it launches.
+  const fromShim = (shim) => {
+    const dir = path.dirname(shim);
+    let text = "";
+    try {
+      text = fs.readFileSync(shim, "utf8");
+    } catch {}
+    const rels = [...text.matchAll(/(?:%dp0%|\$basedir|\$PSScriptRoot|%~dp0)[\\/]+([^"'\s%$]+?\.(?:exe|js|cjs|mjs))/gi)].map((m) => m[1]);
+    for (const rel of rels) {
+      const target = path.join(dir, ...rel.split(/[\\/]+/));
+      const c = isFile(target) ? asCommand(target) : null;
       if (c) return c;
     }
-  }
+    return fromPackageDir(path.join(dir, "node_modules", "@anthropic-ai", "claude-code"));
+  };
+
+  // Find a runnable entry point inside an installed @anthropic-ai/claude-code package directory.
+  const fromPackageDir = (pkgDir) => {
+    if (!fs.existsSync(pkgDir)) return null;
+    const plat = `@anthropic-ai/claude-code-${win ? "win32" : platform}-${arch}`.split("/");
+    const candidates = [
+      path.join(pkgDir, "bin", "claude.exe"),
+      path.join(pkgDir, "node_modules", ...plat, "claude.exe"), // nested optional dependency
+      path.join(pkgDir, "..", plat[1], "claude.exe"), // hoisted sibling
+      path.join(pkgDir, "node_modules", ...plat, "claude"),
+      path.join(pkgDir, "..", plat[1], "claude"),
+    ];
+    for (const c of candidates) if (isRealBinary(c)) return { cmd: c, pre: [], label: c };
+    for (const js of ["cli.js", "cli.mjs"]) if (isFile(path.join(pkgDir, js))) return asCommand(path.join(pkgDir, js));
+    notes.push(`Found the npm package at ${pkgDir}, but not its Windows program.`);
+    return null;
+  };
+
+  const search = (name) => {
+    const dirs = (env.PATH || env.Path || "").split(path.delimiter).filter(Boolean);
+    // Default install locations, in case PATH in this terminal is stale.
+    dirs.push(path.join(home, ".local", "bin"), path.join(home, ".claude", "local"));
+    if (win && env.APPDATA) dirs.push(path.join(env.APPDATA, "npm"));
+    if (!win) dirs.push("/opt/homebrew/bin", "/usr/local/bin");
+    // On Windows prefer the real exe, then npm shims (which we follow); never run a shim directly.
+    const exts = win ? [".exe", ".cmd", "", ".ps1"] : [""];
+    for (const ext of exts) {
+      for (const dir of dirs) {
+        const p = path.join(dir, name + ext);
+        if (!isFile(p)) continue;
+        const c = asCommand(p);
+        if (c) return c;
+      }
+    }
+    return null;
+  };
+
+  const configured = env.CLAUDE_BIN?.trim().replace(/^"(.*)"$/, "$1");
+  let found = null;
+  if (configured) {
+    if (isFile(configured)) found = asCommand(configured);
+    else if (fs.existsSync(configured)) found = fromPackageDir(configured);
+    else if (!/[\\/]/.test(configured)) found = search(configured);
+    else notes.push(`CLAUDE_BIN is set to "${configured}", but nothing exists there.`);
+  } else found = search("claude");
+  if (found) return found;
+
+  const why = notes.length ? `\n${[...new Set(notes)].join("\n")}\n` : "";
   return {
-    error: isWin
-      ? `Could not find the Claude Code CLI. Install it in PowerShell with:  irm https://claude.ai/install.ps1 | iex   then open a NEW terminal. If it is installed, run  where.exe claude  and start the app with:  $env:CLAUDE_BIN="<that path>"; npm start`
-      : `Could not find the Claude Code CLI. Install it with:  curl -fsSL https://claude.ai/install.sh | bash   If it is installed, run  which claude  and start the app with:  CLAUDE_BIN="<that path>" npm start`,
+    error: win
+      ? `Could not find a runnable Claude Code program.${why}\nFix: install the native version in PowerShell:\n    irm https://claude.ai/install.ps1 | iex\nthen close and reopen the terminal and run npm start again.\nOr, if you installed with npm, reinstall it so its install step runs:\n    npm install -g @anthropic-ai/claude-code`
+      : `Could not find the Claude Code CLI.${why}\nInstall it with:  curl -fsSL https://claude.ai/install.sh | bash\nIf it is installed, run  which claude  and start with:  CLAUDE_BIN="<that path>" npm start`,
   };
 }
