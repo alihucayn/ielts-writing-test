@@ -321,6 +321,14 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE") {
+    console.error(`Port ${PORT} is already in use, so the platform is probably already running: open http://${HOST}:${PORT}\nTo run a second copy, use a different port: PORT=4001 npm start`);
+    process.exit(1);
+  }
+  throw e;
+});
+
 server.listen(PORT, HOST, () => {
   console.log(`IELTS Writing platform: http://${HOST}:${PORT}${MOCK ? "  (MOCK mode — Claude not called)" : ""}`);
 });
